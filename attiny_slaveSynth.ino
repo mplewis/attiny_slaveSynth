@@ -64,10 +64,10 @@ union byteFloat_t {
 } convBytesFloat;
 
 // and use a union to convert two bytes to one int
-union byteLong_t { 
+union byteInt_t { 
 	byte asBytes[2];
-	long asLong;
-} convBytesLong;
+	int asInt;
+} convBytesInt;
 
 void setup(){
 	pinMode(pinStatus, OUTPUT);
@@ -203,10 +203,11 @@ void loop() {
 				freqSweepEnable = false;
 				break;
 
-			/* S (83d, 53h): ten bytes (4b float, 4b float, 2b int): frequency sweep
+			/* S (83d, 53h): ten bytes (4b float, 4b float, 2b int, 2b int): frequency sweep
 			 * first float selects start freq
 			 * second float selects end freq
-			 * int selects speed of sweep
+			 * first int selects size of sweep cycle step
+			 * second int selects delay between sweeps in microseconds
 			 */
 			case 'S':
 				
@@ -231,10 +232,18 @@ void loop() {
 				for (int i = 0; i <= 1; i++) {
 					// wait for data; this is blocking
 					while (!TinyWireS.available()) { /* nop */ }
-					convBytesLong.asBytes[i] = TinyWireS.receive();
+					convBytesInt.asBytes[i] = TinyWireS.receive();
 				}
 				// output the sweep delay to the sweep delay variable
-				sweepDelay = convBytesLong.asLong;
+				sweepStep = convBytesInt.asInt;
+
+				for (int i = 0; i <= 1; i++) {
+					// wait for data; this is blocking
+					while (!TinyWireS.available()) { /* nop */ }
+					convBytesInt.asBytes[i] = TinyWireS.receive();
+				}
+				// output the sweep delay to the sweep delay variable
+				sweepDelay = convBytesInt.asInt;
 
 				// set the next inc/dec time
 				nextSweepMicros = micros() + sweepDelay;
@@ -263,16 +272,22 @@ void loop() {
 
 	// sound is only generated if chipEnable is true
 	if (chipEnable) {
-		if (freqSweepEnable) {
-			if (micros() >= nextSweepMicros) {
-				selectedFrequency += sweepDirection;
-				recalcFreq();
-				if (selectedFrequency == targetFrequency) {
+		if (freqSweepEnable && micros() >= nextSweepMicros) {
+			nextSweepMicros = micros() + sweepDelay;
+			if (sweepDirection >= 0) {
+				selectedFrequency += sweepStep;
+				if (selectedFrequency >= targetFrequency) {
+					selectedFrequency = targetFrequency;
 					freqSweepEnable = false;
-				} else {
-					nextSweepMicros = micros() + sweepDelay;
+				}
+			} else {
+				selectedFrequency -= sweepStep;
+				if (selectedFrequency <= targetFrequency) {
+					selectedFrequency = targetFrequency;
+					freqSweepEnable = false;
 				}
 			}
+			recalcFreq();
 		}
 		if (noiseGenEnable) {
 			digitalWrite(pinSpkr, random(2));
